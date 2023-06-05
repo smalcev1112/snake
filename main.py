@@ -11,7 +11,7 @@ CELL_SIZE = 20
 BORDER_SIZE = 3
 
 # Размеры сетки в ячейках
-WIDTH = WINDOW_WIDTH // CELL_SIZE
+WIDTH = (WINDOW_WIDTH - 4 * CELL_SIZE) // CELL_SIZE
 HEIGHT = WINDOW_HEIGHT // CELL_SIZE
 
 # Цвета
@@ -23,6 +23,7 @@ SNAKE_COLOR = (0, 255, 0)
 SNAKE_OUTER_COLOR = (0, 155, 0)
 HEAD_COLOR = (173, 255, 47)
 HEAD_OUTER_COLOR = (154, 205, 50)
+TEXT_COLOR = (255, 100, 0)
 
 FPS = 3
 
@@ -98,7 +99,8 @@ class Snake:
         # голова змеи
         self.cells[-1].draw(SNAKE_OUTER_COLOR, HEAD_COLOR)
         # хвост змеи
-        for item in self.cells[0:-1]:
+
+        for item in self.cells[-2::-1]:
             item.draw(SNAKE_OUTER_COLOR, SNAKE_COLOR)
 
     def hit_edge(self):
@@ -154,6 +156,7 @@ def main():
 def run_game():
     apples = Apple()
     snake = Snake()
+    font = pygame.font.SysFont('couriernew', 12)
     # исходное направление движения змейки.
     direction = snake.direction_of_head
     speed = 3
@@ -163,6 +166,7 @@ def run_game():
                 terminate()
             if event.type == pygame.KEYDOWN:
                 direction = get_direction(event, direction)
+                # смена скорости змейки
                 tmp = get_speed(event)
                 if type(tmp) is int:
                     speed = tmp
@@ -191,25 +195,32 @@ def run_game():
                         break
         # сдвинуть змейку в заданном направлении
         snake.move(direction)
-
-        draw_frame(snake, apples)
+        text = font.render(f'Score:{len(snake.cells)}', True, TEXT_COLOR)
+        draw_frame(snake, apples, text)
 
         FPS_CLOCK.tick(FPS * speed)
 
 
-def draw_frame(snake, apples):
+def draw_frame(snake, apples, text):
     DISPLAY.fill(BG_COLOR)
     draw_grid()
+    draw_side_bar()
+    DISPLAY.blit(text, (WINDOW_WIDTH - 3.7 * CELL_SIZE, 5))
     snake.draw_snake()
     apples.draw_apple()
     pygame.display.update()
 
 
+def draw_side_bar():
+    r = pygame.Rect(WINDOW_WIDTH - 4 * CELL_SIZE, 0, 4 * CELL_SIZE, WINDOW_HEIGHT)
+    pygame.draw.rect(DISPLAY, GRID_COLOR, r, 0)
+
+
 def draw_grid():
-    for i in range(WIDTH):
+    for i in range(WIDTH + 1):
         pygame.draw.line(DISPLAY, GRID_COLOR, (i * CELL_SIZE, 0), (i * CELL_SIZE, WINDOW_HEIGHT))
     for i in range(HEIGHT):
-        pygame.draw.line(DISPLAY, GRID_COLOR, (0, i * CELL_SIZE), (WINDOW_WIDTH, i * CELL_SIZE))
+        pygame.draw.line(DISPLAY, GRID_COLOR, (0, i * CELL_SIZE), (WINDOW_WIDTH - 4 * CELL_SIZE, i * CELL_SIZE))
 
 
 def add_apple():
