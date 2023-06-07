@@ -12,8 +12,13 @@ WINDOW_HEIGHT = 480
 CELL_SIZE = 20
 BORDER_SIZE = 3
 
-# Размеры сетки в ячейках
-WIDTH = (WINDOW_WIDTH - 4 * CELL_SIZE) // CELL_SIZE
+LIMIT_OF_APPLES = 50
+
+# Ширина viewport2
+WIDTH_VP2 = 80
+
+# Размеры сетки в ячейках(viewport1)
+WIDTH = (WINDOW_WIDTH - WIDTH_VP2) // CELL_SIZE
 HEIGHT = WINDOW_HEIGHT // CELL_SIZE
 
 # Цвета
@@ -71,6 +76,9 @@ class Cell:
         self.y %= other.y
         return self
 
+    def __iadd__(self, other):
+        return Cell(self.x + other.x, self.y + other.y)
+
     def draw(self, outer_color, inner_color):
         #  Ячейка состоит из двух квадратов разных цветов:
         #  * большой квадрат закрашивается цветом outer_color,
@@ -106,10 +114,23 @@ class Snake:
             cells.remove(-self.direction_of_head)
         for cell in cells:
             cell.x += self.cells[-1].x
-            cell.x %= WIDTH
             cell.y += self.cells[-1].y
-            cell.y %= HEIGHT
+            cell %= Cell(WIDTH, HEIGHT)
         return cells
+
+    def get_tongue(self):
+        tongue = self.direction_of_head + self.cells[-1]  # Сенсор впереди змеи
+        tongue %= Cell(WIDTH, HEIGHT)
+        return tongue
+
+    def get_eye(self, side: str):
+        """Функция возвращает координату глаза змеи"""
+        s = self.get_vision()
+        i = s.index(self.get_tongue())
+        if side == 'left':
+            return s[(i - 1) % len(s)]
+        elif side == 'right':
+            return s[(i + 1) % len(s)]
 
     def make_decision(self, apples):
         possible_way = deepcopy(self.vision)
@@ -118,13 +139,11 @@ class Snake:
                 return eye - self.cells[-1]
             if see_self(eye, self.cells):
                 possible_way.remove(eye)
-        if len(possible_way) == 3 or len(possible_way) == 0:
-            if random.randrange(10) > 0:
-                return self.direction_of_head
-            else:
-                return random.sample(possible_way, 1)[0] - self.cells[-1]
-        if len(possible_way) < 3:
+
+        if 0 < len(possible_way) < 3 or random.randrange(10) == 0:
             return random.sample(possible_way, 1)[0] - self.cells[-1]
+        else:
+            return self.direction_of_head
 
     def move(self, direction):
         """Функция перемещения змейки на одну ячейку в заданном направлении."""
@@ -142,8 +161,8 @@ class Snake:
         # голова змеи
         self.cells[-1].draw(SNAKE_OUTER_COLOR, HEAD_COLOR)
         # область зрения
-        for item in self.vision:
-            item.draw(VISION_OUTER_COLOR, VISION_COLOR)
+        # for item in self.vision:
+        #     item.draw(VISION_OUTER_COLOR, VISION_COLOR)
         # хвост змеи
         for item in self.cells[-2::-1]:
             item.draw(SNAKE_OUTER_COLOR, SNAKE_COLOR)
@@ -158,9 +177,10 @@ class Snake:
         """Функция возвращает True, если голова
         змейки находится в той же ячейке, что и яблоко."""
         for apple in apples:
-            if self.cells[-1] == apple:
-                apples.remove(apple)
-                return True
+            for cell in self.cells[-1::-1]:
+                if cell == apple:
+                    apples.remove(apple)
+                    return True
 
     def grow(self):
         """Функция увеличения длины змейки."""
@@ -177,7 +197,7 @@ class Snake:
 
 class Apple:
     def __init__(self):
-        self.cells = [add_apple() for _ in range(10)]
+        self.cells = [add_apple() for _ in range(LIMIT_OF_APPLES)]
 
     def draw_apple(self):
         for apple in self.cells:
@@ -194,8 +214,8 @@ def main():
     FPS_CLOCK = pygame.time.Clock()
     DISPLAY = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption('Wormy')
-    viewport1 = create_viewport(WINDOW_WIDTH-4*CELL_SIZE, WINDOW_HEIGHT)
-    viewport2 = create_viewport(4*CELL_SIZE, WINDOW_HEIGHT)
+    viewport1 = create_viewport(WINDOW_WIDTH - WIDTH_VP2, WINDOW_HEIGHT)    # область мира змейки
+    viewport2 = create_viewport(WIDTH_VP2, WINDOW_HEIGHT)   # боковая область, отображение длины змейки
     font = pygame.font.SysFont('couriernew', 12)
     while True:
         # Game... Game never changes.
@@ -206,17 +226,17 @@ def run_game():
     apples = Apple()
     snake = Snake()
     # исходное направление движения змейки.
-    direction = snake.direction_of_head
-    speed = 3
+    direction = Cell(0, 0)  # стоит на месте
+    speed = 5   # Нужно переписать логику смены скорости, не завязываясь на FPS
     count_apple = 0
     max_len = len(snake.cells)
-    manual_control, count = False, 50
+    manual_control, count = True, 20
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
             if event.type == pygame.KEYDOWN:
-                manual_control = True
+                manual_control, count = True, 40
                 direction = get_direction(event, direction)
                 # смена скорости змейки
                 tmp = get_speed(event)
@@ -237,17 +257,18 @@ def run_game():
         #   * увеличить размер змейки, если кол-во съеденных яблок равняется длине змейки
         #   * добавить новое яблоко
         if snake.hit_apple(apples.cells):
-            count_apple += 1
-            if count_apple >= len(snake.cells):
-                count_apple = 0
-                snake.grow()
-            if len(apples.cells) <= 10:
+            snake.grow()
+            # count_apple += 1
+            # # Условие роста змейки.
+            # if count_apple >= len(snake.cells):
+            #     count_apple = 0
+            #     snake.grow()
+            if len(apples.cells) <= LIMIT_OF_APPLES:
                 apples.cells.append(add_apple())
                 # Если яблоко на змее, то располагаем яблоко позади хвоста
                 for cell in snake.cells:
                     if cell == apples.cells[-1]:
                         apples.cells[-1] = snake.cells[0] + (snake.cells[0] - snake.cells[1])
-                        break
         if not manual_control:
             count = 20
             direction = snake.make_decision(apples)
@@ -268,20 +289,20 @@ def run_game():
 
 
 def draw_frame(snake, apples, text):
-    viewport1.fill(BG_COLOR)     # область мира змейки
+    viewport1.fill(BG_COLOR)
     viewport2.fill(GRID_COLOR)
     viewport2.blit(text, (3, 5))
     draw_grid()
     snake.draw_snake()
     apples.draw_apple()
     DISPLAY.blit(viewport1, (0, 0))
-    DISPLAY.blit(viewport2, (WINDOW_WIDTH - 4 * CELL_SIZE, 0))
+    DISPLAY.blit(viewport2, (WINDOW_WIDTH - WIDTH_VP2, 0))
     pygame.display.update()
 
 
 def draw_grid():
     """Функция заполняет всю поверхность viewport, вертикальными и горизонтальными линиями с шагом CELL_SIZE пикселей"""
-    for i in range(WIDTH+1):
+    for i in range(WIDTH + 1):
         pygame.draw.line(viewport1, GRID_COLOR, (i * CELL_SIZE, 0), (i * CELL_SIZE, viewport1.get_size()[1]))
     for i in range(HEIGHT):
         pygame.draw.line(viewport1, GRID_COLOR, (0, i * CELL_SIZE), (viewport1.get_size()[0], i * CELL_SIZE))
