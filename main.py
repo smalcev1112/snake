@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 import pygame
 import random
 import sys
@@ -100,14 +98,6 @@ class Snake:
         self.direction_of_head = self.cells[-1] - self.cells[-2]
         self.vision = self.get_vision()
 
-    def get_direction_of_head(self):
-        d_last = self.direction_of_head
-        d = self.cells[-1] - self.cells[-2]
-        if -1 <= d.x <= 1 and -1 <= d.y <= 1:
-            return d
-        else:
-            return d_last
-
     def get_vision(self):
         cells = [Cell(-1, 0), Cell(0, -1), Cell(1, 0), Cell(0, 1)]
         if -self.direction_of_head in cells:
@@ -118,51 +108,58 @@ class Snake:
             cell %= Cell(WIDTH, HEIGHT)
         return cells
 
-    def get_tongue(self):
+    def get_sensor(self, side: str):
+        """Функция возвращает координату сенсора змеи(слева, справа, спереди)"""
         tongue = self.direction_of_head + self.cells[-1]  # Сенсор впереди змеи
         tongue %= Cell(WIDTH, HEIGHT)
-        return tongue
-
-    def get_eye(self, side: str):
-        """Функция возвращает координату глаза змеи"""
-        s = self.get_vision()
-        i = s.index(self.get_tongue())
+        if side == 'forward':
+            return tongue
+        s = self.vision                         # В s хранятся координаты 3-х сенсоров [l_eye, tongue, r_eye]
+        i = s.index(tongue)                     # относительно языка, глаза находятся слева и справа,
         if side == 'left':
             return s[(i - 1) % len(s)]
         elif side == 'right':
             return s[(i + 1) % len(s)]
+        else:       # 'break'
+            return self.cells[-1]
 
     def make_decision(self, apples):
-        possible_way = deepcopy(self.vision)
-        for eye in self.vision:
-            if see_apple(eye, apples):
-                return eye - self.cells[-1]
-            if see_self(eye, self.cells):
-                possible_way.remove(eye)
-
-        if 0 < len(possible_way) < 3 or random.randrange(10) == 0:
-            return random.sample(possible_way, 1)[0] - self.cells[-1]
+        ways = ['left', 'forward', 'right']
+        for side in ways:
+            sensor = self.get_sensor(side)
+            if see_apple(sensor, apples):
+                return side
+        if see_self(self.get_sensor('forward'), self.cells[-3::-1]) or random.randrange(10) == 0:
+            if see_self(self.get_sensor('left'), self.cells[-3::-1]):
+                return 'right'
+            elif see_self(self.get_sensor('right'), self.cells[-3::-1]):
+                return 'left'
+            else:
+                return random.sample(['left', 'right'], 1)[0]
         else:
-            return self.direction_of_head
+            return 'forward'
 
-    def move(self, direction):
+    def move_to(self, side):
         """Функция перемещения змейки на одну ячейку в заданном направлении."""
-        if direction != Cell(0, 0):
+        direction = self.get_sensor(side) - self.cells[-1]
+        direction %= Cell(WIDTH, HEIGHT)
+        if side is not None:
             self.cells.pop(0)
             new_head = self.cells[-1] + direction
+            self.direction_of_head = direction
             # Если мир без границ, то закольцовываем координаты
             if EDGELESS:
                 new_head %= Cell(WIDTH, HEIGHT)
             self.cells.append(new_head)
-            self.direction_of_head = self.get_direction_of_head()
+            self.vision = self.get_vision()
 
     def draw_snake(self):
         """Функция рисования змеи"""
         # голова змеи
         self.cells[-1].draw(SNAKE_OUTER_COLOR, HEAD_COLOR)
         # область зрения
-        # for item in self.vision:
-        #     item.draw(VISION_OUTER_COLOR, VISION_COLOR)
+        # for sensor in self.vision:
+        #     sensor.draw(VISION_OUTER_COLOR, VISION_COLOR)
         # хвост змеи
         for item in self.cells[-2::-1]:
             item.draw(SNAKE_OUTER_COLOR, SNAKE_COLOR)
@@ -225,19 +222,14 @@ def main():
 def run_game():
     apples = Apple()
     snake = Snake()
-    # исходное направление движения змейки.
-    direction = Cell(0, 0)  # стоит на месте
     speed = 5   # Нужно переписать логику смены скорости, не завязываясь на FPS
     count_apple = 0
     max_len = len(snake.cells)
-    manual_control, count = True, 20
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
             if event.type == pygame.KEYDOWN:
-                manual_control, count = True, 40
-                direction = get_direction(event, direction)
                 # смена скорости змейки
                 tmp = get_speed(event)
                 if type(tmp) is int:
@@ -257,28 +249,21 @@ def run_game():
         #   * увеличить размер змейки, если кол-во съеденных яблок равняется длине змейки
         #   * добавить новое яблоко
         if snake.hit_apple(apples.cells):
-            snake.grow()
-            # count_apple += 1
-            # # Условие роста змейки.
-            # if count_apple >= len(snake.cells):
-            #     count_apple = 0
-            #     snake.grow()
+            count_apple += 1
+            # Условие роста змейки.
+            if count_apple >= len(snake.cells):
+                count_apple = 0
+                snake.grow()
             if len(apples.cells) <= LIMIT_OF_APPLES:
                 apples.cells.append(add_apple())
                 # Если яблоко на змее, то располагаем яблоко позади хвоста
                 for cell in snake.cells:
                     if cell == apples.cells[-1]:
                         apples.cells[-1] = snake.cells[0] + (snake.cells[0] - snake.cells[1])
-        if not manual_control:
-            count = 20
-            direction = snake.make_decision(apples)
-        else:
-            count -= 1
-            if count <= 0:
-                manual_control = False
         # сдвинуть змейку в заданном направлении
-        snake.move(direction)
-        snake.vision = snake.get_vision()
+        side = snake.make_decision(apples)
+        snake.move_to(side)
+        # Фиксирование максимальной длины, за сессию
         if max_len < len(snake.cells):
             max_len = len(snake.cells)
         s = f'Len:{len(snake.cells)} ({max_len})'
@@ -313,36 +298,36 @@ def add_apple():
     return Cell(random.randint(0, WIDTH - 1), random.randint(0, HEIGHT - 1))
 
 
-def see_apple(eye, apples):
+def see_apple(sensor, apples):
     """Если змея увидела яблоко, то функция возвращает True"""
     for apple in apples.cells:
-        if eye == apple:
+        if sensor == apple:
             return True
 
 
-def see_self(eye, cells):
+def see_self(sensor, cells):
     """Если змея увидела себя, то функция возвращает True"""
     for cell in cells[0:-4]:
-        if eye == cell:
+        if sensor == cell:
             return True
 
 
-def get_direction(event, direction):
-    """Функция возвращает направление движения.
-    Если нажата клавиша противоположного направления движения,
-    то не менять направление."""
-    if event.key == pygame.K_LEFT and direction.x != 1:
-        return Cell(-1, 0)
-    elif event.key == pygame.K_RIGHT and direction.x != -1:
-        return Cell(1, 0)
-    elif event.key == pygame.K_UP and direction.y != 1:
-        return Cell(0, -1)
-    elif event.key == pygame.K_DOWN and direction.y != -1:
-        return Cell(0, 1)
-    elif event.key == pygame.K_SPACE:  # остановка движения
-        return Cell(0, 0)
-    else:
-        return direction
+# def get_direction(event, direction):
+#     """Функция возвращает направление движения.
+#     Если нажата клавиша противоположного направления движения,
+#     то не менять направление."""
+#     if event.key == pygame.K_LEFT and direction.x != 1:
+#         return Cell(-1, 0)
+#     elif event.key == pygame.K_RIGHT and direction.x != -1:
+#         return Cell(1, 0)
+#     elif event.key == pygame.K_UP and direction.y != 1:
+#         return Cell(0, -1)
+#     elif event.key == pygame.K_DOWN and direction.y != -1:
+#         return Cell(0, 1)
+#     elif event.key == pygame.K_SPACE:  # остановка движения
+#         return Cell(0, 0)
+#     else:
+#         return direction
 
 
 def create_viewport(width, height):
