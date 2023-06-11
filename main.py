@@ -3,21 +3,26 @@ import random
 import sys
 
 # Размеры окна в пикселях
-WINDOW_WIDTH = 640
+WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 480
 
-# Размер сетки и ее рамки
-CELL_SIZE = 20
-BORDER_SIZE = 3
-
-LIMIT_OF_APPLES = 50
-
-# Ширина viewport2
-WIDTH_VP2 = 80
-
-# Размеры сетки в ячейках(viewport1)
-WIDTH = (WINDOW_WIDTH - WIDTH_VP2) // CELL_SIZE
+# Viewport1
+CELL_SIZE = 4       # Размер ячейки
+BORDER_SIZE = 3     # Размер рамки
+# Размеры сетки в ячейках
+WIDTH = (WINDOW_WIDTH // 2) // CELL_SIZE
 HEIGHT = WINDOW_HEIGHT // CELL_SIZE
+
+# Viewport2
+WINDOW_WIDTH_VP2 = 80  # Ширина в пикселях
+WINDOW_HEIGHT_VP2 = 30
+
+# Viewport 3
+CELL_SIZE_VP3 = 20
+WINDOW_WIDTH_VP3 = 180
+WINDOW_HEIGHT_VP3 = 180
+WIDTH_VP3 = WINDOW_WIDTH_VP3 // CELL_SIZE_VP3
+HEIGHT_VP3 = WINDOW_HEIGHT_VP3 // CELL_SIZE_VP3
 
 # Цвета
 BG_COLOR = (0, 0, 0)
@@ -35,6 +40,8 @@ TEXT_COLOR = (255, 100, 0)
 FPS = 3
 
 EDGELESS = True  # Мир закольцован
+
+LIMIT_OF_APPLES = 1000
 
 
 class Cell:
@@ -77,19 +84,19 @@ class Cell:
     def __iadd__(self, other):
         return Cell(self.x + other.x, self.y + other.y)
 
-    def draw(self, outer_color, inner_color):
+    def draw(self, surface, outer_color, inner_color, cell_size):
         #  Ячейка состоит из двух квадратов разных цветов:
         #  * большой квадрат закрашивается цветом outer_color,
-        x = self.x * CELL_SIZE
-        y = self.y * CELL_SIZE
-        r = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
-        pygame.draw.rect(viewport1, outer_color, r, 0)
+        x = self.x * cell_size
+        y = self.y * cell_size
+        r = pygame.Rect(x, y, cell_size, cell_size)
+        pygame.draw.rect(surface, outer_color, r, 0)
         #  * меньший - inner_color.
         x += BORDER_SIZE
         y += BORDER_SIZE
-        size = CELL_SIZE - BORDER_SIZE * 2
+        size = cell_size - BORDER_SIZE * 2
         r = pygame.Rect(x, y, size, size)
-        pygame.draw.rect(viewport1, inner_color, r, 0)
+        pygame.draw.rect(surface, inner_color, r, 0)
 
 
 class Snake:
@@ -156,13 +163,13 @@ class Snake:
     def draw_snake(self):
         """Функция рисования змеи"""
         # голова змеи
-        self.cells[-1].draw(SNAKE_OUTER_COLOR, HEAD_COLOR)
+        self.cells[-1].draw(viewport1, SNAKE_OUTER_COLOR, HEAD_COLOR, CELL_SIZE)
         # область зрения
         # for sensor in self.vision:
-        #     sensor.draw(VISION_OUTER_COLOR, VISION_COLOR)
+        #     sensor.draw(VISION_OUTER_COLOR, VISION_COLOR, CELL_SIZE)
         # хвост змеи
         for item in self.cells[-2::-1]:
-            item.draw(SNAKE_OUTER_COLOR, SNAKE_COLOR)
+            item.draw(viewport1, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE)
 
     def hit_edge(self):
         """Функция возвращает True,
@@ -198,21 +205,22 @@ class Apple:
 
     def draw_apple(self):
         for apple in self.cells:
-            apple.draw(APPLE_OUTER_COLOR, APPLE_COLOR)
+            apple.draw(viewport1, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE)
 
 
 def main():
     global FPS_CLOCK
     global DISPLAY
-    global viewport1, viewport2
+    global viewport1, viewport2, viewport3
     global font
 
     pygame.init()
     FPS_CLOCK = pygame.time.Clock()
     DISPLAY = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption('Wormy')
-    viewport1 = create_viewport(WINDOW_WIDTH - WIDTH_VP2, WINDOW_HEIGHT)    # область мира змейки
-    viewport2 = create_viewport(WIDTH_VP2, WINDOW_HEIGHT)   # боковая область, отображение длины змейки
+    viewport1 = create_viewport(WINDOW_WIDTH // 2, WINDOW_HEIGHT)    # область мира змейки
+    viewport2 = create_viewport(WINDOW_WIDTH_VP2, WINDOW_HEIGHT_VP2)   # боковая область, отображение длины змейки
+    viewport3 = create_viewport(WINDOW_WIDTH_VP3, WINDOW_HEIGHT_VP3)
     font = pygame.font.SysFont('couriernew', 12)
     while True:
         # Game... Game never changes.
@@ -274,23 +282,69 @@ def run_game():
 
 
 def draw_frame(snake, apples, text):
+    DISPLAY.fill(GRID_COLOR)
     viewport1.fill(BG_COLOR)
-    viewport2.fill(GRID_COLOR)
+    viewport2.fill(BG_COLOR)
+    viewport3.fill(BG_COLOR)
     viewport2.blit(text, (3, 5))
-    draw_grid()
+    draw_grid(viewport1, WIDTH, HEIGHT, CELL_SIZE)
+    draw_grid(viewport3, WIDTH_VP3, HEIGHT_VP3, CELL_SIZE_VP3)
+    draw_mini_map(WIDTH_VP3, HEIGHT_VP3, snake, apples)
     snake.draw_snake()
     apples.draw_apple()
     DISPLAY.blit(viewport1, (0, 0))
-    DISPLAY.blit(viewport2, (WINDOW_WIDTH - WIDTH_VP2, 0))
+    DISPLAY.blit(viewport2, (WINDOW_WIDTH - WINDOW_WIDTH_VP2, 0))
+    DISPLAY.blit(viewport3, (WINDOW_WIDTH // 2 + 40, 0))
     pygame.display.update()
 
 
-def draw_grid():
-    """Функция заполняет всю поверхность viewport, вертикальными и горизонтальными линиями с шагом CELL_SIZE пикселей"""
-    for i in range(WIDTH + 1):
-        pygame.draw.line(viewport1, GRID_COLOR, (i * CELL_SIZE, 0), (i * CELL_SIZE, viewport1.get_size()[1]))
-    for i in range(HEIGHT):
-        pygame.draw.line(viewport1, GRID_COLOR, (0, i * CELL_SIZE), (viewport1.get_size()[0], i * CELL_SIZE))
+def draw_grid(surface, width, height, cell_size):
+    """Функция заполняет всю поверхность surface сеткой width X height квадратов"""
+    for i in range(width):
+        pygame.draw.line(surface, GRID_COLOR, (i * cell_size, 0), (i * cell_size, surface.get_size()[1]))
+    for i in range(height):
+        pygame.draw.line(surface, GRID_COLOR, (0, i * cell_size), (surface.get_size()[0], i * cell_size))
+
+
+def draw_mini_map(width, height, snake, apples):
+    mini_map = [[0] * width] * height
+    for y in range(height):
+        for x in range(width):
+            xy = snake.cells[-1] - Cell(4 - x, 4 - y)
+            xy %= Cell(WIDTH, HEIGHT)
+            for apple in apples.cells:
+                if apple == xy:
+                    mini_map[y][x] = 1
+                    # orient_head(x, y, height, width, snake.direction_of_head).draw(viewport3, APPLE_OUTER_COLOR,
+                    #                                                                APPLE_COLOR, CELL_SIZE_VP3)
+            for cell in snake.cells:
+                if cell == xy:
+                    mini_map[y][x] = 2
+                    # orient_head(x, y, height, width, snake.direction_of_head).draw(viewport3, SNAKE_OUTER_COLOR,
+                    #                                                                SNAKE_COLOR, CELL_SIZE_VP3)
+
+
+def orient_head(x, y, height, width, direction_of_head):
+    if direction_of_head == Cell(-1, 0):
+        return rotate_90(x, y, width)
+    elif direction_of_head == Cell(0, -1):
+        return rotate_180(x, y, height, width)
+    elif direction_of_head == Cell(1, 0):
+        return rotate_270(x, y, height)
+    else:
+        return Cell(x, y)
+
+
+def rotate_90(x, y, length):
+    return Cell(abs(y - length + 1), x)
+
+
+def rotate_180(x, y, length_x, length_y):
+    return Cell(abs(y - length_y + 1), abs(x - length_x + 1))
+
+
+def rotate_270(x, y, length):
+    return Cell(y, abs(x - length + 1))
 
 
 def add_apple():
