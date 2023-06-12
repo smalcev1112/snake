@@ -14,8 +14,8 @@ WIDTH = (WINDOW_WIDTH // 2) // CELL_SIZE
 HEIGHT = WINDOW_HEIGHT // CELL_SIZE
 
 # Viewport2
-WINDOW_WIDTH_VP2 = 80  # Ширина в пикселях
-WINDOW_HEIGHT_VP2 = 30
+WINDOW_WIDTH_VP2 = 120  # Ширина в пикселях
+WINDOW_HEIGHT_VP2 = 50
 
 # Viewport 3
 CELL_SIZE_VP3 = 20
@@ -37,11 +37,15 @@ HEAD_COLOR = (173, 255, 47)
 HEAD_OUTER_COLOR = (154, 205, 50)
 TEXT_COLOR = (255, 100, 0)
 
-FPS = 3
+FPS = 15
 
 EDGELESS = True  # Мир закольцован
 
 LIMIT_OF_APPLES = 1000
+MAX_SPEED = FPS
+MIN_SPEED = 1
+MIN_LEN_SNAKE = 3
+EXP = 2.71828183
 
 
 class Cell:
@@ -102,8 +106,27 @@ class Cell:
 class Snake:
     def __init__(self):
         self.cells = [Cell(10, i) for i in range(3, 6)]
+        for cell in self.cells:
+            map_world[cell.y][cell.x] = 2
+        self.speed = MAX_SPEED
         self.direction_of_head = self.cells[-1] - self.cells[-2]
         self.vision = self.get_vision()
+        self.vision1 = [[0] * WIDTH_VP3 for _ in range(HEIGHT_VP3)]
+
+    def brain(self):
+        for y in range(HEIGHT_VP3):
+            for x in range(WIDTH_VP3):
+                cell = self.cells[-1] - Cell(4 - x, 4 - y)  # Ячейка из viewport1(главный мир)
+                cell %= Cell(WIDTH, HEIGHT)
+                self.vision1[y][x] = map_world[cell.y][cell.x]
+
+    def draw_brain(self):
+        for y in range(HEIGHT_VP3):
+            for x in range(WIDTH_VP3):
+                if self.vision1[y][x] == 1:
+                    Cell(x, y).draw(viewport3, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE_VP3)
+                if self.vision1[y][x] == 2 or self.vision1[y][x] == 3:
+                    Cell(x, y).draw(viewport3, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE_VP3)
 
     def get_vision(self):
         cells = [Cell(-1, 0), Cell(0, -1), Cell(1, 0), Cell(0, 1)]
@@ -130,16 +153,17 @@ class Snake:
         else:       # 'break'
             return self.cells[-1]
 
-    def make_decision(self, apples):
+    def make_decision(self):
+        self.brain()
         ways = ['left', 'forward', 'right']
         for side in ways:
             sensor = self.get_sensor(side)
-            if see_apple(sensor, apples):
+            if see_apple(sensor):
                 return side
-        if see_self(self.get_sensor('forward'), self.cells[-3::-1]) or random.randrange(10) == 0:
-            if see_self(self.get_sensor('left'), self.cells[-3::-1]):
+        if see_self(self.get_sensor('forward')) or random.randrange(10) == 0:
+            if see_self(self.get_sensor('left')):
                 return 'right'
-            elif see_self(self.get_sensor('right'), self.cells[-3::-1]):
+            elif see_self(self.get_sensor('right')):
                 return 'left'
             else:
                 return random.sample(['left', 'right'], 1)[0]
@@ -147,26 +171,52 @@ class Snake:
             return 'forward'
 
     def move_to(self, side):
+        global count_apple
         """Функция перемещения змейки на одну ячейку в заданном направлении."""
         direction = self.get_sensor(side) - self.cells[-1]
-        direction %= Cell(WIDTH, HEIGHT)
-        if side is not None:
-            self.cells.pop(0)
-            new_head = self.cells[-1] + direction
-            self.direction_of_head = direction
-            # Если мир без границ, то закольцовываем координаты
-            if EDGELESS:
-                new_head %= Cell(WIDTH, HEIGHT)
-            self.cells.append(new_head)
-            self.vision = self.get_vision()
+        end_of_tail = self.cells.pop(0)
+        map_world[end_of_tail.y][end_of_tail.x] = 0
+        old_head = self.cells[-1]
+        new_head = old_head + direction
+        self.direction_of_head = direction
+        # Если мир без границ, то закольцовываем координаты
+        if EDGELESS:
+            new_head %= Cell(WIDTH, HEIGHT)
+        self.cells.append(new_head)
+        # Если змейка задела свой хвост:
+        #   * оторвать хвост в месте касания
+        #   * превратить хвост в яблоки
+        bite_self, index = self.bite_self()
+        if bite_self:
+            tail = self.cells[0:index]
+            for cell in tail:
+                map_world[cell.y][cell.x] = 1
+            self.cells = self.cells[index:]
+        # Обработка ситуации столкновения змейки с яблоком.
+        #  При столкновении:
+        #   * увеличить размер змейки, если кол-во съеденных яблок равняется длине змейки
+        #   * добавить новое яблоко
+        if self.hit_apple():
+            count_apple += 1
+            # Условие роста змейки.
+            if count_apple >= len(self.cells):
+                count_apple = 0
+                self.grow()
+            if sum(row.count(1) for row in map_world) <= LIMIT_OF_APPLES:
+                new_apple = add_apple()
+                # Если яблоко на змее, то располагаем яблоко позади хвоста
+                if map_world[new_apple.y][new_apple.x] == 2 or map_world[new_apple.y][new_apple.x] == 3:
+                    new_apple = self.cells[0] + (self.cells[0] - self.cells[1])
+                    new_apple %= Cell(WIDTH, HEIGHT)
+                map_world[new_apple.y][new_apple.x] = 1
+        map_world[old_head.y][old_head.x] = 2
+        map_world[new_head.y][new_head.x] = 3
+        self.vision = self.get_vision()
 
     def draw_snake(self):
         """Функция рисования змеи"""
         # голова змеи
         self.cells[-1].draw(viewport1, SNAKE_OUTER_COLOR, HEAD_COLOR, CELL_SIZE)
-        # область зрения
-        # for sensor in self.vision:
-        #     sensor.draw(VISION_OUTER_COLOR, VISION_COLOR, CELL_SIZE)
         # хвост змеи
         for item in self.cells[-2::-1]:
             item.draw(viewport1, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE)
@@ -177,35 +227,39 @@ class Snake:
         if self.cells[-1] < Cell(0, 0) or self.cells[-1] > Cell(WIDTH, HEIGHT):
             return True
 
-    def hit_apple(self, apples):
+    def hit_apple(self):
         """Функция возвращает True, если голова
         змейки находится в той же ячейке, что и яблоко."""
-        for apple in apples:
-            for cell in self.cells[-1::-1]:
-                if cell == apple:
-                    apples.remove(apple)
-                    return True
+        for cell in self.cells[-1::-1]:
+            if map_world[cell.y][cell.x] == 1:
+                map_world[cell.y][cell.x] = 2
+                return True
 
     def grow(self):
         """Функция увеличения длины змейки."""
         self.cells.insert(0, self.cells[0])
 
     def bite_self(self):
-        """Функция возвращает True, если голова змеи
-        пересеклась хотя бы с одним блоком хвоста."""
-        for cell in self.cells[:-1]:
+        """Функция возвращает True и индекс пересечения головы с хвостом, если голова змеи
+        пересеклась с блоком хвоста."""
+        for cell in self.cells[:-2]:
             if self.cells[-1] == cell:
                 return True, self.cells.index(cell)
         return False, -1
 
 
-class Apple:
-    def __init__(self):
-        self.cells = [add_apple() for _ in range(LIMIT_OF_APPLES)]
+def add_apple():
+    """Функция возвращает ячейку со случайными координатами Cell(x, y)."""
+    return Cell(random.randint(0, WIDTH - 1), random.randint(0, HEIGHT - 1))
 
-    def draw_apple(self):
-        for apple in self.cells:
-            apple.draw(viewport1, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE)
+
+# Создаем пустой мир из 0
+map_world = [[0] * WIDTH for _ in range(HEIGHT)]    # 1 - яблоко, 2 - хвост, 3 - голова, 0 - пусто
+# Добавляем яблоки
+for _ in range(LIMIT_OF_APPLES):
+    apple = add_apple()
+    map_world[apple.y][apple.x] = 1
+count_apple = 0
 
 
 def main():
@@ -218,8 +272,8 @@ def main():
     FPS_CLOCK = pygame.time.Clock()
     DISPLAY = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption('Wormy')
-    viewport1 = create_viewport(WINDOW_WIDTH // 2, WINDOW_HEIGHT)    # область мира змейки
-    viewport2 = create_viewport(WINDOW_WIDTH_VP2, WINDOW_HEIGHT_VP2)   # боковая область, отображение длины змейки
+    viewport1 = create_viewport(WINDOW_WIDTH // 2, WINDOW_HEIGHT)  # область мира змейки
+    viewport2 = create_viewport(WINDOW_WIDTH_VP2, WINDOW_HEIGHT_VP2)  # боковая область, отображение длины змейки
     viewport3 = create_viewport(WINDOW_WIDTH_VP3, WINDOW_HEIGHT_VP3)
     font = pygame.font.SysFont('couriernew', 12)
     while True:
@@ -228,70 +282,44 @@ def main():
 
 
 def run_game():
-    apples = Apple()
     snake = Snake()
-    speed = 5   # Нужно переписать логику смены скорости, не завязываясь на FPS
-    count_apple = 0
     max_len = len(snake.cells)
+    count_delay = 0
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
-            if event.type == pygame.KEYDOWN:
-                # смена скорости змейки
-                tmp = get_speed(event)
-                if type(tmp) is int:
-                    speed = tmp
         # При не закольцованном режиме, если змейка достигла границы окна, начать новую игру.
         if not EDGELESS and snake.hit_edge():
             break
-        # Если змейка задела свой хвост:
-        #   * оторвать хвост в месте касания
-        #   * превратить хвост в яблоки
-        bite_self, index = snake.bite_self()
-        if bite_self:
-            apples.cells.extend(snake.cells[0:index])
-            snake.cells = snake.cells[index:]
-        # Обработка ситуации столкновения змейки с яблоком.
-        #  При столкновении:
-        #   * увеличить размер змейки, если кол-во съеденных яблок равняется длине змейки
-        #   * добавить новое яблоко
-        if snake.hit_apple(apples.cells):
-            count_apple += 1
-            # Условие роста змейки.
-            if count_apple >= len(snake.cells):
-                count_apple = 0
-                snake.grow()
-            if len(apples.cells) <= LIMIT_OF_APPLES:
-                apples.cells.append(add_apple())
-                # Если яблоко на змее, то располагаем яблоко позади хвоста
-                for cell in snake.cells:
-                    if cell == apples.cells[-1]:
-                        apples.cells[-1] = snake.cells[0] + (snake.cells[0] - snake.cells[1])
-        # сдвинуть змейку в заданном направлении
-        side = snake.make_decision(apples)
-        snake.move_to(side)
+        if count_delay <= 0:
+            # Решить, куда идти
+            side = snake.make_decision()
+            # Сдвинуть змейку в заданном направлении
+            snake.move_to(side)
+            snake.speed = get_speed(len(snake.cells))
+            count_delay = MAX_SPEED - snake.speed
+        else:
+            count_delay -= 1
         # Фиксирование максимальной длины, за сессию
         if max_len < len(snake.cells):
             max_len = len(snake.cells)
-        s = f'Len:{len(snake.cells)} ({max_len})'
-        text = font.render(s, True, TEXT_COLOR)
-        draw_frame(snake, apples, text)
+        text = f'Len:{len(snake.cells)} ({max_len})\n'
+        text += f'speed: {snake.speed}'
+        draw_frame(snake, text)
+        FPS_CLOCK.tick(FPS)
 
-        FPS_CLOCK.tick(FPS * speed)
 
-
-def draw_frame(snake, apples, text):
+def draw_frame(snake, text):
     DISPLAY.fill(GRID_COLOR)
     viewport1.fill(BG_COLOR)
     viewport2.fill(BG_COLOR)
     viewport3.fill(BG_COLOR)
-    viewport2.blit(text, (3, 5))
+    draw_text(text)
     draw_grid(viewport1, WIDTH, HEIGHT, CELL_SIZE)
     draw_grid(viewport3, WIDTH_VP3, HEIGHT_VP3, CELL_SIZE_VP3)
-    draw_mini_map(WIDTH_VP3, HEIGHT_VP3, snake, apples)
-    snake.draw_snake()
-    apples.draw_apple()
+    draw_map_world()
+    snake.draw_brain()
     DISPLAY.blit(viewport1, (0, 0))
     DISPLAY.blit(viewport2, (WINDOW_WIDTH - WINDOW_WIDTH_VP2, 0))
     DISPLAY.blit(viewport3, (WINDOW_WIDTH // 2 + 40, 0))
@@ -306,102 +334,67 @@ def draw_grid(surface, width, height, cell_size):
         pygame.draw.line(surface, GRID_COLOR, (0, i * cell_size), (surface.get_size()[0], i * cell_size))
 
 
-def draw_mini_map(width, height, snake, apples):
-    mini_map = [[0] * width] * height
-    for y in range(height):
-        for x in range(width):
-            xy = snake.cells[-1] - Cell(4 - x, 4 - y)
-            xy %= Cell(WIDTH, HEIGHT)
-            for apple in apples.cells:
-                if apple == xy:
-                    mini_map[y][x] = 1
-                    # orient_head(x, y, height, width, snake.direction_of_head).draw(viewport3, APPLE_OUTER_COLOR,
-                    #                                                                APPLE_COLOR, CELL_SIZE_VP3)
-            for cell in snake.cells:
-                if cell == xy:
-                    mini_map[y][x] = 2
-                    # orient_head(x, y, height, width, snake.direction_of_head).draw(viewport3, SNAKE_OUTER_COLOR,
-                    #                                                                SNAKE_COLOR, CELL_SIZE_VP3)
+def draw_map_world():
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            if map_world[y][x] != 0:
+                if map_world[y][x] == 2 or map_world[y][x] == 3:
+                    Cell(x, y).draw(viewport1, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE)
+                elif map_world[y][x] == 1:
+                    Cell(x, y).draw(viewport1, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE)
 
 
-def orient_head(x, y, height, width, direction_of_head):
-    if direction_of_head == Cell(-1, 0):
-        return rotate_90(x, y, width)
-    elif direction_of_head == Cell(0, -1):
-        return rotate_180(x, y, height, width)
-    elif direction_of_head == Cell(1, 0):
-        return rotate_270(x, y, height)
-    else:
-        return Cell(x, y)
+def draw_text(text):
+    y = 5
+    for string in text.split('\n'):
+        viewport2.blit(font.render(string, True, TEXT_COLOR), (3, y))
+        y += 20
 
 
-def rotate_90(x, y, length):
-    return Cell(abs(y - length + 1), x)
-
-
-def rotate_180(x, y, length_x, length_y):
-    return Cell(abs(y - length_y + 1), abs(x - length_x + 1))
-
-
-def rotate_270(x, y, length):
-    return Cell(y, abs(x - length + 1))
-
-
-def add_apple():
-    """Функция возвращает ячейку со случайными координатами Cell(x, y)."""
-    return Cell(random.randint(0, WIDTH - 1), random.randint(0, HEIGHT - 1))
-
-
-def see_apple(sensor, apples):
-    """Если змея увидела яблоко, то функция возвращает True"""
-    for apple in apples.cells:
-        if sensor == apple:
-            return True
-
-
-def see_self(sensor, cells):
-    """Если змея увидела себя, то функция возвращает True"""
-    for cell in cells[0:-4]:
-        if sensor == cell:
-            return True
-
-
-# def get_direction(event, direction):
-#     """Функция возвращает направление движения.
-#     Если нажата клавиша противоположного направления движения,
-#     то не менять направление."""
-#     if event.key == pygame.K_LEFT and direction.x != 1:
-#         return Cell(-1, 0)
-#     elif event.key == pygame.K_RIGHT and direction.x != -1:
-#         return Cell(1, 0)
-#     elif event.key == pygame.K_UP and direction.y != 1:
-#         return Cell(0, -1)
-#     elif event.key == pygame.K_DOWN and direction.y != -1:
-#         return Cell(0, 1)
-#     elif event.key == pygame.K_SPACE:  # остановка движения
-#         return Cell(0, 0)
+# def orient_head(x, y, height, width, direction_of_head):
+#     if direction_of_head == Cell(-1, 0):
+#         return rotate_90(x, y, width)
+#     elif direction_of_head == Cell(0, 1):
+#         return rotate_180(x, y, height, width)
+#     elif direction_of_head == Cell(1, 0):
+#         return rotate_270(x, y, height)
 #     else:
-#         return direction
+#         return Cell(x, y)
+#
+#
+# def rotate_90(x, y, length):
+#     return Cell(abs(y - length + 1), x)
+#
+#
+# def rotate_180(x, y, length_x, length_y):
+#     return Cell(abs(x - length_x + 1), abs(y - length_y + 1))
+#
+#
+# def rotate_270(x, y, length):
+#     return Cell(y, abs(x - length + 1))
+
+
+def see_apple(sensor):
+    """Если змея увидела яблоко, то функция возвращает True"""
+    return map_world[sensor.y][sensor.x] == 1
+
+
+def see_self(sensor):
+    """Если змея увидела себя, то функция возвращает True"""
+    return map_world[sensor.y][sensor.x] == 2
+
+
+def get_speed(length):
+    """Функция возвращает скорость змеи(чем больше змея, тем скорость меньше)"""
+    if length >= 3:
+        return round(EXP ** (-0.04 * length + 3.0644) + 1)
+    return 0
 
 
 def create_viewport(width, height):
     """Функция создает поверхность(Surface) с заданными размерами (width, height)"""
     surface = pygame.Surface((width, height))
     return surface
-
-
-def get_speed(event):
-    """Функция возвращает число от 1 до 5, в зависимости от нажатия клавиш 1-5"""
-    if event.key == pygame.K_1:
-        return 1
-    elif event.key == pygame.K_2:
-        return 2
-    elif event.key == pygame.K_3:
-        return 3
-    elif event.key == pygame.K_4:
-        return 4
-    elif event.key == pygame.K_5:
-        return 5
 
 
 def terminate():
