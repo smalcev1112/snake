@@ -1,3 +1,5 @@
+import math
+
 import pygame
 import random
 import sys
@@ -15,7 +17,7 @@ HEIGHT = WINDOW_HEIGHT // CELL_SIZE
 
 # Viewport2
 WINDOW_WIDTH_VP2 = 120  # Ширина в пикселях
-WINDOW_HEIGHT_VP2 = 50
+WINDOW_HEIGHT_VP2 = 100
 
 # Viewport 3
 CELL_SIZE_VP3 = 20
@@ -31,8 +33,6 @@ APPLE_COLOR = (255, 0, 0)
 APPLE_OUTER_COLOR = (155, 0, 0)
 SNAKE_COLOR = (0, 255, 0)
 SNAKE_OUTER_COLOR = (0, 155, 0)
-VISION_COLOR = (255, 170, 200)
-VISION_OUTER_COLOR = (230, 150, 180)
 HEAD_COLOR = (173, 255, 47)
 HEAD_OUTER_COLOR = (154, 205, 50)
 TEXT_COLOR = (255, 100, 0)
@@ -45,7 +45,8 @@ LIMIT_OF_APPLES = 1000
 MAX_SPEED = FPS
 MIN_SPEED = 1
 MIN_LEN_SNAKE = 3
-EXP = 2.71828183
+a1 = 4/100
+a2 = math.log(MAX_SPEED - MIN_SPEED) + a1 * MIN_LEN_SNAKE
 
 
 class Cell:
@@ -105,65 +106,48 @@ class Cell:
 
 class Snake:
     def __init__(self):
-        self.cells = [Cell(10, i) for i in range(3, 6)]
+        self.cells = [Cell(WIDTH//2, i) for i in range(HEIGHT//2+1, HEIGHT//2-2, -1)]
         for cell in self.cells:
             map_world[cell.y][cell.x] = 2
         self.speed = MAX_SPEED
         self.direction_of_head = self.cells[-1] - self.cells[-2]
-        self.vision = self.get_vision()
-        self.vision1 = [[0] * WIDTH_VP3 for _ in range(HEIGHT_VP3)]
+        self.vision = [[0] * WIDTH_VP3 for _ in range(HEIGHT_VP3)]
+        self.brain()
 
     def brain(self):
         for y in range(HEIGHT_VP3):
             for x in range(WIDTH_VP3):
-                cell = self.cells[-1] - Cell(4 - x, 4 - y)  # Ячейка из viewport1(главный мир)
+                oriented_cell = orient(x, y, HEIGHT_VP3, WIDTH_VP3, self.direction_of_head)
+                cell = self.cells[-1] + oriented_cell - Cell(WIDTH_VP3//2, HEIGHT_VP3//2)
                 cell %= Cell(WIDTH, HEIGHT)
-                self.vision1[y][x] = map_world[cell.y][cell.x]
+                self.vision[y][x] = map_world[cell.y][cell.x]
 
     def draw_brain(self):
         for y in range(HEIGHT_VP3):
             for x in range(WIDTH_VP3):
-                if self.vision1[y][x] == 1:
+                if self.vision[y][x] == 1:
                     Cell(x, y).draw(viewport3, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE_VP3)
-                if self.vision1[y][x] == 2 or self.vision1[y][x] == 3:
+                if self.vision[y][x] == 2:
                     Cell(x, y).draw(viewport3, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE_VP3)
+                if self.vision[y][x] == 3:
+                    Cell(x, y).draw(viewport3, HEAD_OUTER_COLOR, HEAD_COLOR, CELL_SIZE_VP3)
 
-    def get_vision(self):
-        cells = [Cell(-1, 0), Cell(0, -1), Cell(1, 0), Cell(0, 1)]
-        if -self.direction_of_head in cells:
-            cells.remove(-self.direction_of_head)
-        for cell in cells:
-            cell.x += self.cells[-1].x
-            cell.y += self.cells[-1].y
-            cell %= Cell(WIDTH, HEIGHT)
-        return cells
-
-    def get_sensor(self, side: str):
-        """Функция возвращает координату сенсора змеи(слева, справа, спереди)"""
-        tongue = self.direction_of_head + self.cells[-1]  # Сенсор впереди змеи
-        tongue %= Cell(WIDTH, HEIGHT)
-        if side == 'forward':
-            return tongue
-        s = self.vision                         # В s хранятся координаты 3-х сенсоров [l_eye, tongue, r_eye]
-        i = s.index(tongue)                     # относительно языка, глаза находятся слева и справа,
-        if side == 'left':
-            return s[(i - 1) % len(s)]
-        elif side == 'right':
-            return s[(i + 1) % len(s)]
-        else:       # 'break'
-            return self.cells[-1]
+    def get_new_head(self, side):
+        f = get_sensor(side)
+        f = orient(f.x, f.y, HEIGHT_VP3, WIDTH_VP3, self.direction_of_head)
+        head = Cell(HEIGHT_VP3 // 2, WIDTH_VP3 // 2)
+        return f - head
 
     def make_decision(self):
-        self.brain()
-        ways = ['left', 'forward', 'right']
+        ways = ['forward', 'left', 'right']
         for side in ways:
-            sensor = self.get_sensor(side)
-            if see_apple(sensor):
+            sensor = get_sensor(side)
+            if self.see_apple(sensor):
                 return side
-        if see_self(self.get_sensor('forward')) or random.randrange(10) == 0:
-            if see_self(self.get_sensor('left')):
+        if self.see_self(get_sensor('forward')) or random.randrange(10) == 0:
+            if self.see_self(get_sensor('left')):
                 return 'right'
-            elif see_self(self.get_sensor('right')):
+            elif self.see_self(get_sensor('right')):
                 return 'left'
             else:
                 return random.sample(['left', 'right'], 1)[0]
@@ -173,12 +157,12 @@ class Snake:
     def move_to(self, side):
         global count_apple
         """Функция перемещения змейки на одну ячейку в заданном направлении."""
-        direction = self.get_sensor(side) - self.cells[-1]
         end_of_tail = self.cells.pop(0)
         map_world[end_of_tail.y][end_of_tail.x] = 0
         old_head = self.cells[-1]
-        new_head = old_head + direction
-        self.direction_of_head = direction
+        new_head = old_head + self.get_new_head(side)
+        if -1 <= new_head.x - old_head.x <= 1 and -1 <= new_head.y - old_head.y <= 1:
+            self.direction_of_head = new_head - old_head
         # Если мир без границ, то закольцовываем координаты
         if EDGELESS:
             new_head %= Cell(WIDTH, HEIGHT)
@@ -211,15 +195,7 @@ class Snake:
                 map_world[new_apple.y][new_apple.x] = 1
         map_world[old_head.y][old_head.x] = 2
         map_world[new_head.y][new_head.x] = 3
-        self.vision = self.get_vision()
-
-    def draw_snake(self):
-        """Функция рисования змеи"""
-        # голова змеи
-        self.cells[-1].draw(viewport1, SNAKE_OUTER_COLOR, HEAD_COLOR, CELL_SIZE)
-        # хвост змеи
-        for item in self.cells[-2::-1]:
-            item.draw(viewport1, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE)
+        self.brain()
 
     def hit_edge(self):
         """Функция возвращает True,
@@ -246,6 +222,14 @@ class Snake:
             if self.cells[-1] == cell:
                 return True, self.cells.index(cell)
         return False, -1
+
+    def see_apple(self, sensor):
+        """Если змея увидела яблоко, то функция возвращает True"""
+        return self.vision[sensor.y][sensor.x] == 1
+
+    def see_self(self, sensor):
+        """Если змея увидела себя, то функция возвращает True"""
+        return self.vision[sensor.y][sensor.x] == 2
 
 
 def add_apple():
@@ -318,11 +302,12 @@ def draw_frame(snake, text):
     draw_text(text)
     draw_grid(viewport1, WIDTH, HEIGHT, CELL_SIZE)
     draw_grid(viewport3, WIDTH_VP3, HEIGHT_VP3, CELL_SIZE_VP3)
-    draw_map_world()
     snake.draw_brain()
+    draw_map_world()
+
     DISPLAY.blit(viewport1, (0, 0))
     DISPLAY.blit(viewport2, (WINDOW_WIDTH - WINDOW_WIDTH_VP2, 0))
-    DISPLAY.blit(viewport3, (WINDOW_WIDTH // 2 + 40, 0))
+    DISPLAY.blit(viewport3, (WINDOW_WIDTH // 2 + CELL_SIZE_VP3, 0))
     pygame.display.update()
 
 
@@ -338,7 +323,9 @@ def draw_map_world():
     for y in range(HEIGHT):
         for x in range(WIDTH):
             if map_world[y][x] != 0:
-                if map_world[y][x] == 2 or map_world[y][x] == 3:
+                if map_world[y][x] == 3:
+                    Cell(x, y).draw(viewport1, HEAD_OUTER_COLOR, HEAD_COLOR, CELL_SIZE)
+                if map_world[y][x] == 2:
                     Cell(x, y).draw(viewport1, SNAKE_OUTER_COLOR, SNAKE_COLOR, CELL_SIZE)
                 elif map_world[y][x] == 1:
                     Cell(x, y).draw(viewport1, APPLE_OUTER_COLOR, APPLE_COLOR, CELL_SIZE)
@@ -351,43 +338,47 @@ def draw_text(text):
         y += 20
 
 
-# def orient_head(x, y, height, width, direction_of_head):
-#     if direction_of_head == Cell(-1, 0):
-#         return rotate_90(x, y, width)
-#     elif direction_of_head == Cell(0, 1):
-#         return rotate_180(x, y, height, width)
-#     elif direction_of_head == Cell(1, 0):
-#         return rotate_270(x, y, height)
-#     else:
-#         return Cell(x, y)
-#
-#
-# def rotate_90(x, y, length):
-#     return Cell(abs(y - length + 1), x)
-#
-#
-# def rotate_180(x, y, length_x, length_y):
-#     return Cell(abs(x - length_x + 1), abs(y - length_y + 1))
-#
-#
-# def rotate_270(x, y, length):
-#     return Cell(y, abs(x - length + 1))
+def orient(x, y, height, width, direction_of_head):
+    if direction_of_head == Cell(-1, 0):
+        return rotate_270(x, y, height)
+    elif direction_of_head == Cell(0, 1):
+        return rotate_180(x, y, height, width)
+    elif direction_of_head == Cell(1, 0):
+        return rotate_90(x, y, width)
+    else:
+        return Cell(x, y)
 
 
-def see_apple(sensor):
-    """Если змея увидела яблоко, то функция возвращает True"""
-    return map_world[sensor.y][sensor.x] == 1
+def rotate_90(x, y, length):
+    return Cell(abs(y - length + 1), x)
 
 
-def see_self(sensor):
-    """Если змея увидела себя, то функция возвращает True"""
-    return map_world[sensor.y][sensor.x] == 2
+def rotate_180(x, y, length_x, length_y):
+    return Cell(abs(x - length_x + 1), abs(y - length_y + 1))
+
+
+def rotate_270(x, y, length):
+    return Cell(y, abs(x - length + 1))
+
+
+def get_sensor(side: str):
+    """Функция возвращает координату сенсора змеи(слева, справа, спереди)"""
+    head = Cell(HEIGHT_VP3 // 2, WIDTH_VP3 // 2)
+    match side:
+        case 'left':
+            return head + Cell(-1, 0)
+        case 'forward':
+            return head + Cell(0, -1)
+        case 'right':
+            return head + Cell(1, 0)
+        case _:
+            return head
 
 
 def get_speed(length):
     """Функция возвращает скорость змеи(чем больше змея, тем скорость меньше)"""
     if length >= 3:
-        return round(EXP ** (-0.04 * length + 3.0644) + 1)
+        return round(math.exp(-a1 * length + a2) + 1)
     return 0
 
 
